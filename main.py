@@ -3,9 +3,6 @@ import bcrypt
 import re
 import os
 from abc import ABC, abstractmethod
-from typing import Dict
-
-
 
 # Interface's
 class User(ABC):
@@ -18,29 +15,41 @@ class State(ABC):
     def change_state(self):
         pass
 
-# Database Connection
+
+# Database Connection - singleton
 
 class Database_connection:
+    __instance = None
+
+    @staticmethod
+    def get_connection():
+        if Database_connection.__instance == None:
+            Database_connection()
+        return Database_connection.__instance
+
     def __init__(self):
-        self.con = psycopg2.connect(
-            database='car_meet',
-            user='postgres',
-            password='admin'
-        )
-        self.cur = self.con.cursor()
+        if Database_connection.__instance != None:
+            raise Exception("Singleton cannot be instantiated more than once!")
+        else:
+            self.con = psycopg2.connect(
+                database='car_meet',
+                user='postgres',
+                password='admin'
+            )
+            self.cur = self.con.cursor()
 
 
 # Functional classes
 
 # Check if user with this login already exists
-class User_exist(Database_connection):
-    def __init__(self, login):
-        super().__init__()
+class User_exist():
+    def __init__(self, login: str, db: Database_connection):
         self._login = login
+        self._db = db
 
     def check(self) -> bool:
-        self.cur.execute('select count(*) from "Account" where login = %s;', (self.login,))
-        in_base = self.cur.fetchone()
+        self._db.cur.execute('select count(*) from "Account" where login = %s;', (self.login,))
+        in_base = self._db.cur.fetchone()
         if (in_base[0] == 1):
             # user exists
             return True
@@ -48,14 +57,14 @@ class User_exist(Database_connection):
         return False
 
 # Check if user with this nick already exists
-class Nick_exist(Database_connection):
-    def __init__(self, nick):
-        super().__init__()
+class Nick_exist():
+    def __init__(self, nick: str, db: Database_connection):
         self._nick = nick
+        self._db = db
 
     def check(self) -> bool:
-        self.cur.execute('select count(*) from "Account" where nick = %s;', (self.nick,))
-        in_base = self.cur.fetchone()
+        self._db.cur.execute('select count(*) from "Account" where nick = %s;', (self.nick,))
+        in_base = self._db.cur.fetchone()
         if (in_base[0] == 1):
             # nick exists
             return True
@@ -64,14 +73,14 @@ class Nick_exist(Database_connection):
 
 # Check if password is strong (at least 8 letters, 1 capital, 1 number, 1 special char)
 class Password_check():
-    def check(self, password):
+    def check(self, password: str):
         if re.fullmatch(r'[A-Za-z0-9@#$%^&+=]{8,}', password):
             return True
         return False
 
 # Hashes password using bcrypt algorithm
 class Hash:
-    def __init__(self, password) -> None:
+    def __init__(self, password: str) -> None:
         self._password = password.encode('utf-8')
         self._salt = bcrypt.gensalt()
         self._hashed_password = bcrypt.hashpw(self._password, self._salt).decode('utf-8')
@@ -89,42 +98,50 @@ class No_meet_state(State):
     def change_state(self):
         pass
 
-# Login user from database
-class Login(Database_connection):
-    def __init__(self) -> None:
-        self._login = ""
-        self._password = ""
-        super().__init__()
 
-    def getLogin(self) -> str:
+# Database user classes
+
+# Login user from database
+class Login(User):
+    def __init__(self, login: str, password: str, db: Database_connection) -> None:
+        self._login = login
+        self._password = password
+        self._db = db
+
+    def get_login(self) -> str:
         return self._login
 
+    def get_state(self, state: str) -> State:
+        self._db.cur.execute('select state from "Account" where login = %s;', (self._login,))
+        rows = self._db.cur.fetchone()
+        if (rows[0] == "no_meet_state"):
+            return No_meet_state()
+        return Meet_state()
+
     def sign(self) -> bool:
-        self.cur.execute('select password from "Account" where login = %s;', (self._login,))
-        rows = self.cur.fetchone()
+        self._db.cur.execute('select password from "Account" where login = %s;', (self._login,))
+        rows = self._db.cur.fetchone()
         if (bcrypt.checkpw(self._password.encode('utf-8'), rows[0].encode('utf-8')) == True):
             # login successfully
             return True
         # login failed
         return False
 
-
 # Register user in database
-class Register(Database_connection):
-    def __init__(self) -> None:
-        self._login, self._password, self._nick, self._state = "", "", "", No_meet_state
-        #TODO zmiana parametrow
-        super().__init__()
+class Register():
+    def __init__(self, db: Database_connection) -> None:
+        self._login, self._password, self._nick, self._state = "", "", "", "no_meet_state"
+        self._db = db
 
     def register(self, login, password, nick) -> None:
         self._login = login
         self._password = password
         self._nick = nick
-        self.cur.execute('insert into "Account" (login, password, nick, state) values (%s, %s, %s, "no_meet_state");',
+        self._db.cur.execute('insert into "Account" (login, password, nick, state) values (%s, %s, %s, %s);',
                             (self._login, self._passw.get_hashed_password(), self._fname, self._lname))
-        self.con.commit()
+        self._db.con.commit()
 
-
+# Class represents logges user
 class Logged_user(User):
     def __init__(self, login, state: State):
         self._login = login
@@ -133,8 +150,8 @@ class Logged_user(User):
     def get_login(self) -> str:
         return self._login
 
-    def get_state(self):
-        pass
+    def get_state(self) -> State:
+        return self._state
 
 class Car:
     def __init__(self, login):
@@ -144,51 +161,33 @@ class Car:
         self._modded = False
         #TODO przejscie przez flyweight
 
-    def add_car(self) -> bool:
+    def add_car(self, brand, type, modded) -> bool:
         pass
 
-    def change_car(self) -> bool:
+    def change_car(self, brand, type, modded) -> bool:
         pass
 
-class IFlyweight(ABC):
-    @abstractmethod
-    def getState(self, unique_state) -> str:
-        pass
-
-class Flyweight(IFlyweight):
-    def __init__(self, shared_state: str) -> None:
-        self._shared_state = shared_state
-        print("Flyweight innit")
-
-    def getState(self, unique_state) -> str:
-        return f"Shared state: {self._shared_state}, Unique state: {unique_state}"
-
-class Flyweight_factory:
-    _flyweights: Dict[str, Flyweight] = {}
-
-    def __init__(self, initial_flyweights: Dict) -> None:
-        for state in initial_flyweights:
-            self._flyweights[self.getKey(state)] = Flyweight(state)
-
-    def getKey(self, state: Dict) -> str:
-        return "_".join(sorted(state))
-
-    def getFlyweight(self, shared_state: Dict) -> Flyweight:
-        key = self.getKey(shared_state)
-        if not self._flyweights.get(key):
-            print("Creating new flyweight")
-            self._flyweights[key] = Flyweight(key)
-        else:
-            print("Using existing flyweight")
-
-        return self._flyweights[key]
-
+# Proxy - check the input and call class with
 class Proxy(User):
-    def __init__(self) -> None:
-        pass
-    def login_proxy(self):
-        pass
-    def register_proxy(self):
+    def __init__(self, db: Database_connection) -> None:
+        self._db = db
+    def login_proxy(self) -> Logged_user:
+        while(True):
+            login = str(input("Login: "))
+            password = str(input("Password: "))
+            if(User_exist(login).check()):
+                if(Login(login, password).sign()):
+                    print("Login successfull!")
+                    input("Press Enter to continue...")
+                    os.system('cls' if os.name == 'nt' else 'clear')
+                    return Logged_user(login, Login(login, password).get_state())
+                else:
+                    print("Wrong password!")
+            else:
+                print("User does not exists!")
+
+
+    def register_proxy(self) -> None:
         while(True):
             login = str(input("Login: "))
             password = str(input("Password: "))
@@ -209,7 +208,6 @@ class Proxy(User):
             input("Press Enter to continue...")
             os.system('cls' if os.name == 'nt' else 'clear')
 
-
     def add_car_proxy(self):
         # TODO flyweight
         pass
@@ -223,21 +221,20 @@ class Proxy(User):
     def add_location_proxy(self):
         # TODO flyweight
         pass
-    def get_state(self):
-        pass
-    '''
-    def addSubject(self, factory: Flyweight_factory) -> None:
-        print("Proxy add subject")
-        flyweight = factory.getFlyweight([self._first_name])
-        flyweight.getState([self._last_name, self._latitude, self._longitude])
-        #self._real_subject = RealSubject(flyweight, self._last_name, self._latitude, self._longitude)
-    
-    def getState(self) -> str:
-        return self._real_subject.getState()
-    '''
+    def get_state(self, object) -> State:
+        if object is Logged_user or object is Login:
+            return object.get_state()
+        print("User does not have state specified!")
+        return None
 
 class Login_menu:
     pass
 
 class Logged_menu:
     pass
+
+def main():
+    db = Database_connection
+
+if __name__ == "__main__":
+    main()

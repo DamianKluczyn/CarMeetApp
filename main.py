@@ -27,7 +27,7 @@ class Database_connection:
             Database_connection()
         return Database_connection.__instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if Database_connection.__instance != None:
             raise Exception("Singleton cannot be instantiated more than once!")
         else:
@@ -43,7 +43,7 @@ class Database_connection:
 
 # Check if user with this login already exists
 class User_exist():
-    def __init__(self, login: str, db: Database_connection):
+    def __init__(self, login: str, db: Database_connection) -> None:
         self._login = login
         self._db = db
 
@@ -58,7 +58,7 @@ class User_exist():
 
 # Check if user with this nick already exists
 class Nick_exist():
-    def __init__(self, nick: str, db: Database_connection):
+    def __init__(self, nick: str, db: Database_connection) -> None:
         self._nick = nick
         self._db = db
 
@@ -73,7 +73,7 @@ class Nick_exist():
 
 # Check if password is strong (at least 8 letters, 1 capital, 1 number, 1 special char)
 class Password_check():
-    def check(self, password: str):
+    def check(self, password: str) -> bool:
         if re.fullmatch(r'[A-Za-z0-9@#$%^&+=]{8,}', password):
             return True
         return False
@@ -87,6 +87,10 @@ class Hash:
 
     def get_hashed_password(self) -> str:
         return self._hashed_password
+
+def Clear_terminal() -> None:
+    input("\nPress Enter to continue...")
+    os.system('cls' if os.name == 'nt' else 'clear')
 
 
 # States (Meet - wants to meet, No_meet - closed for meetings/offline
@@ -133,17 +137,17 @@ class Register():
         self._login, self._password, self._nick, self._state = "", "", "", "no_meet_state"
         self._db = db
 
-    def register(self, login, password, nick) -> None:
+    def register(self, login: str, password: str, nick: str) -> None:
         self._login = login
         self._password = password
         self._nick = nick
-        self._db.cur.execute('insert into "Account" (login, password, nick, state) values (%s, %s, %s, %s);',
+        self._db.cur.execute('insert into Account (login, password, nick, state) values (%s, %s, %s, %s);',
                             (self._login, self._passw.get_hashed_password(), self._fname, self._lname))
         self._db.con.commit()
 
 # Class represents logges user
 class Logged_user(User):
-    def __init__(self, login, state: State):
+    def __init__(self, login: str, state: State) -> None:
         self._login = login
         self._state = state
 
@@ -153,22 +157,52 @@ class Logged_user(User):
     def get_state(self) -> State:
         return self._state
 
+    def change_password(self, password: str) -> None:
+        self._db.cur.execute(
+            'UPDATE "Account" '
+            'SET password = (%s) '
+            'WHERE "Account".login = (%s)',
+            (password, self._login))
+        self._db.con.commit()
+        return
+
+    def change_nick(self, nick: str) -> None:
+        self._db.cur.execute(
+            'UPDATE "Account" '
+            'SET nick = (%s) '
+            'WHERE "Account".login = (%s)',
+            (nick, self._login))
+        self._db.con.commit()
+        return
+
+
 class Car:
-    def __init__(self, login):
-        self._login = login
-        self._brand = ""
-        self._type = ""
-        self._modded = False
-        #TODO przejscie przez flyweight
+    def __init__(self, db: Database_connection) -> None:
+        self._db = db
 
-    def add_car(self, brand, type, modded) -> bool:
-        pass
+    def add_car_to_user(self, brand, model, login) -> None:
+        self._db.cur.execute(
+            'UPDATE "Account" '
+            'SET id_car = (Select id_car FROM "Car" WHERE brand = (%s) and model = (%s)) '
+            'WHERE "Account".login = (%s)',
+            (brand, model, login))
+        self._db.con.commit()
 
-    def change_car(self, brand, type, modded) -> bool:
-        pass
+    def add_car_to_db(self, brand, model) -> None:
+        self._db.cur.execute('insert into Car (brand, model) values (%s, %s);',
+                             (brand, model))
+        self._db.con.commit()
+
+    def change_car(self, brand, model, login) -> None:
+        self._db.cur.execute(
+            'UPDATE "Account" '
+            'SET id_car = (Select id_car FROM "Car" WHERE brand = (%s) and model = (%s)) '
+            'WHERE "Account".login = (%s)',
+            (brand, model, login))
+        self._db.con.commit()
 
 # Proxy - check the input and call class with
-class Proxy(User):
+class Proxy():
     def __init__(self, db: Database_connection) -> None:
         self._db = db
     def login_proxy(self) -> Logged_user:
@@ -178,8 +212,7 @@ class Proxy(User):
             if(User_exist(login).check()):
                 if(Login(login, password).sign()):
                     print("Login successfull!")
-                    input("Press Enter to continue...")
-                    os.system('cls' if os.name == 'nt' else 'clear')
+                    Clear_terminal()
                     return Logged_user(login, Login(login, password).get_state())
                 else:
                     print("Wrong password!")
@@ -198,43 +231,108 @@ class Proxy(User):
                         password = Hash(password).get_hashed_password()
                         Register.register(login, password, nick)
                         print("Registered successfully!")
-                        break;
+                        Clear_terminal()
+                        return
                     else:
                         print("Register failed!\nPassword too weak! - use at least 8 letters, 1 capital, 1 number, 1 special char.")
                 else:
                     print("Register failed!\nNick already exists!")
             else:
                 print("Register failed!\n User with this login already exists")
-            input("Press Enter to continue...")
-            os.system('cls' if os.name == 'nt' else 'clear')
+            Clear_terminal()
+            return
 
-    def add_car_proxy(self):
-        # TODO flyweight
+    def add_car_to_user_proxy(self, user: Logged_user) -> None:
+        brand = str(input("Brand: "))
+        model = str(input("Model: "))
+        self._db.cur.execute('select count(*) from "Car" where brand = %s and model = %s;', (brand, model))
+        in_base = self._db.cur.fetchone()
+        if (in_base[0] == 1):
+            Car.add_car_to_user(brand, model, user.get_login())
+            print("Car added successfully!")
+            input("\nPress Enter to continue...")
+            os.system('cls' if os.name == 'nt' else 'clear')
+            return
+        print("Car isn't in database, add it before allocating!")
+        input("\nPress Enter to continue...")
+        os.system('cls' if os.name == 'nt' else 'clear')
+        return
+
+    def add_car_to_db_proxy(self) -> None:
+        brand = str(input("Brand: "))
+        model = str(input("Model: "))
+        self._db.cur.execute('select count(*) from "Car" where brand = %s and model = %s;', (brand, model))
+        in_base = self._db.cur.fetchone()
+        if (in_base[0] != 0):
+            Car.add_car_to_db(brand, model)
+            print("Car added successfully!")
+            input("\nPress Enter to continue...")
+            os.system('cls' if os.name == 'nt' else 'clear')
+            return
+        print("Car already in database!")
+        input("\nPress Enter to continue...")
+        os.system('cls' if os.name == 'nt' else 'clear')
+        return
+
+    def change_car_proxy(self, user: Logged_user) -> None:
+        brand = str(input("Brand: "))
+        model = str(input("Model: "))
+        self._db.cur.execute('select count(*) from "Car" where brand = %s and model = %s;', (brand, model))
+        in_base = self._db.cur.fetchone()
+        if (in_base[0] == 1):
+            Car.change_car(brand, model, user.get_login())
+            print("Car added successfully!")
+            input("\nPress Enter to continue...")
+            os.system('cls' if os.name == 'nt' else 'clear')
+            return
+        print("Car isn't in database, add it before allocating!")
+        input("\nPress Enter to continue...")
+        os.system('cls' if os.name == 'nt' else 'clear')
+        return
+
+    def change_password_proxy(self, user: Logged_user) -> None:
+        password = str(input("New Password: "))
+        if (Password_check.check(password)):
+            password = Hash(password).get_hashed_password()
+            user.change_password(password)
+
+    def change_nick_proxy(self, user: Logged_user) -> None:
+        nick = str(input("New Password: "))
+        if (not Nick_exist(nick, self._db)):
+            user.change_nick(nick)
+            print("Nick changed successfully!")
+            return
+        print("User with that nick already exists!")
+        return
+
+    def add_location_proxy(self) -> None:
         pass
-    def change_car_proxy(self):
-        # TODO flyweight
+
+
+class View:
+    def __init__(self, db):
+        self._db = db
+
+    def view_cars(self) -> None:
         pass
-    def change_password_proxy(self):
+
+    def view_locations(self) -> None:
         pass
-    def change_nick_proxy(self):
-        pass
-    def add_location_proxy(self):
-        # TODO flyweight
-        pass
-    def get_state(self, object) -> State:
-        if object is Logged_user or object is Login:
-            return object.get_state()
-        print("User does not have state specified!")
-        return None
 
 class Login_menu:
     pass
 
-class Logged_menu:
+class User_settings:
+    pass
+
+class Meet_menu:
+    pass
+
+class No_meet_menu:
     pass
 
 def main():
-    db = Database_connection
+    db = Database_connection()
 
 if __name__ == "__main__":
     main()

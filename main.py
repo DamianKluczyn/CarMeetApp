@@ -4,21 +4,6 @@ import re
 import os
 from abc import ABC, abstractmethod
 
-# Interface's
-class User(ABC):
-    @abstractmethod
-    def get_state(self):
-        pass
-
-class State(ABC):
-    @abstractmethod
-    def change_state(self):
-        pass
-
-class Logged_user:
-    pass
-
-
 # Database Connection - singleton
 
 class Database_connection:
@@ -41,6 +26,17 @@ class Database_connection:
             )
             self.cur = self.con.cursor()
 
+
+# Interface's
+class User(ABC):
+    @abstractmethod
+    def get_state(self):
+        pass
+
+class State(ABC):
+    @abstractmethod
+    def change_state(self, login: str, db: Database_connection):
+        pass
 
 # Functional classes
 
@@ -198,7 +194,7 @@ class Logged_user(User):
         else:
             No_meet_state().change_state(self._login, self._db)
 
-
+# Class represents car based
 class Car():
     def __init__(self, db: Database_connection) -> None:
         self._db = db
@@ -226,6 +222,30 @@ class Car():
             (brand, model, login))
         self._db.con.commit()
 
+class Meet():
+    def __init__(self, user: Logged_user, db: Database_connection) -> None:
+        self._db = db
+        self._user = user
+
+    def meet_count(self, city: str) -> None:
+        self._db.cur.execute(
+            'select L.name, count(A.id_account) '
+            'from "Location" L '
+            'left JOIN "Account" A on L.id_location = A.id_location '
+            'where L.city = (%s) group by L.name;', (city,))
+        in_base = self._db.cur.fetchall()
+        for row in in_base:
+            print(row[0],"- ", row[1])
+
+    def meet_user(self, city: str, name: str) -> None:
+        self._db.cur.execute(
+            'UPDATE "Account" '
+            'SET id_location = (select id_location from "Location" where city = (%s) and name = (%s))'
+            'WHERE "Account".login = (%s)',
+            (city, name, self._user.get_login()))
+        self._db.con.commit()
+
+
 # Proxy - check the input and call class with
 class Proxy():
     def __init__(self, db: Database_connection) -> None:
@@ -243,7 +263,6 @@ class Proxy():
                     print("Wrong password!")
             else:
                 print("User does not exists!")
-
 
     def register_proxy(self) -> None:
         while(True):
@@ -331,8 +350,47 @@ class Proxy():
         return
 
     def add_location_proxy(self) -> None:
-        pass
+        city = str(input("City: "))
+        name = str(input("Location name: "))
+        self._db.cur.execute('select count(*) from "Location" where city = %s and name = %s;', (city, name))
+        in_base = self._db.cur.fetchone()
+        if (in_base[0] != 0):
+            self._db.cur.execute('insert into Location (city, name) values (%s, %s);',
+                                 (city, name))
+            self._db.con.commit()
+            print("Location added successfully!")
+            input("\nPress Enter to continue...")
+            os.system('cls' if os.name == 'nt' else 'clear')
+            return
+        print("Location already in database!")
+        input("\nPress Enter to continue...")
+        os.system('cls' if os.name == 'nt' else 'clear')
+        return
 
+    def meet(self, user: Logged_user) -> None:
+        self._db.cur.execute('select city, count(*) from "Location" group by city;')
+        in_base = self._db.cur.fetchall()
+        print("Available cities: ")
+        cities = list()
+        for row in in_base:
+            cities.append(row[0])
+            print(row[0], end=', ')
+        city = str(input("\nInsert city: "))
+        if city in cities:
+            Meet(user, self._db).meet_count(city)
+            self._db.cur.execute('select name from "Location" where city = (%s);', (city,))
+            in_base = self._db.cur.fetchall()
+            names = []
+            for row in in_base:
+                names.append(row[0])
+            names = list(dict.fromkeys(names))
+            name = str(input("\nInsert your location:"))
+            if name in names:
+                Meet(user, self._db).meet_user(city, name)
+            else:
+                print("Wrong location!")
+        else:
+            print("Wrong city!")
 
 class View:
     def __init__(self, db: Database_connection):
@@ -346,7 +404,11 @@ class View:
         Clear_terminal()
 
     def view_locations(self) -> None:
-        pass
+        self._db.cur.execute('select * from "Location";')
+        in_base = self._db.cur.fetchall()
+        for row in in_base:
+            print("City: ", row[1], ", Name: ", row[2])
+        Clear_terminal()
 
 class Login_menu:
     def __init__(self, db: Database_connection) -> None:
@@ -366,16 +428,17 @@ class Login_menu:
                 user = Proxy(self._db).login_proxy()
                 if isinstance(user.get_state(), Meet_state):
                     Meet_menu(user, self._db).start()
-                    break;
+                    break
                 else:
                     No_meet_menu(user, self._db).start()
-                    break;
+                    break
             elif self.choice == 2:
                 Proxy(self._db).register_proxy()
             elif self.choice == 0:
                 print("Exiting program...")
                 Clear_terminal()
-                break;
+                break
+
 
 class User_settings:
     def __init__(self, user: Logged_user, db: Database_connection) -> None:
@@ -392,6 +455,7 @@ class User_settings:
             2. Change password
             3. Change nick
             4. Add car to database
+            5. Add locations to database
             0. Back
             """))
             if self.choice == 1:
@@ -402,6 +466,8 @@ class User_settings:
                 Proxy(self._db).change_nick_proxy(self._user)
             elif self.choice == 4:
                 Proxy(self._db).add_car_to_db_proxy()
+            elif self.choice == 5:
+                Proxy(self._db).add_location_proxy()
             elif self.choice == 0:
                 print("Going back...")
                 Clear_terminal()
@@ -426,7 +492,7 @@ class Meet_menu:
                     0. Exit
                     """))
             if self.choice == 1:
-                pass
+                Proxy(self._db).meet(self._user)
             elif self.choice == 2:
                 View(self._db).view_locations()
             elif self.choice == 3:
@@ -436,11 +502,11 @@ class Meet_menu:
             elif self.choice == 5:
                 self._user.change_state()
                 No_meet_menu(self._user, self._db).start()
-                break;
+                break
             elif self.choice == 0:
                 print("Exiting program...")
                 Clear_terminal()
-                break;
+                break
 
 class No_meet_menu():
     def __init__(self, user: Logged_user, db: Database_connection) -> None:
@@ -461,17 +527,17 @@ class No_meet_menu():
             if self.choice == 1:
                 self._user.change_state()
                 Meet_menu(self._user, self._db).start()
-                break;
+                break
             elif self.choice == 2:
-                pass
+                View(self._db).view_locations()
             elif self.choice == 3:
-                pass
+                View(self._db).view_cars()
             elif self.choice == 4:
                 User_settings(self._user, self._db).start()
             elif self.choice == 0:
                 print("Exiting program...")
                 Clear_terminal()
-                break;
+                break
 
 
 def main():

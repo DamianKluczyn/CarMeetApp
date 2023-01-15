@@ -95,29 +95,28 @@ def Clear_terminal() -> None:
     input("\nPress Enter to continue...")
     os.system('cls' if os.name == 'nt' else 'clear')
 
-class HasCar():
-    def __init__(self, login: str, db: Database_connection) -> None:
-        self._login = login
-        self._db = db
-
-    def check(self) -> bool:
-        self._db.cur.execute('select id_car from "Account" where login = %s;', (self._login,))
-        in_base = self._db.cur.fetchone()
-        if (in_base[0] == None):
-            # doesn't have car
-            return False
-        # has car
-        return True
-
 
 # States (Meet - wants to meet, No_meet - closed for meetings/offline
 class Meet_state(State):
-    def change_state(self):
-        pass
+    def change_state(self, login: str, db: Database_connection) -> None:
+        print("Changing to no meet state...")
+        db.cur.execute(
+            'UPDATE "Account" '
+            'SET state = (%s) '
+            'WHERE "Account".login = (%s)',
+            (False, login))
+        db.con.commit()
+
 
 class No_meet_state(State):
-    def change_state(self):
-        pass
+    def change_state(self, login: str, db: Database_connection) -> None:
+        print("Changing to meet state...")
+        db.cur.execute(
+            'UPDATE "Account" '
+            'SET state = (%s) '
+            'WHERE "Account".login = (%s)',
+            (True, login))
+        db.con.commit()
 
 
 # Database user classes
@@ -194,29 +193,17 @@ class Logged_user(User):
         return
 
     def change_state(self) -> None:
-        if(self.get_state() is Meet_state()):
-            print("Changing to no meet state...")
-            self._db.cur.execute(
-                'UPDATE "Account" '
-                'SET state = (%s) '
-                'WHERE "Account".login = (%s)',
-                (False, self._login))
-            self._db.con.commit()
+        if isinstance(self.get_state(), Meet_state):
+            Meet_state().change_state(self._login, self._db)
         else:
-            print("Changing to meet state...")
-            self._db.cur.execute(
-                'UPDATE "Account" '
-                'SET state = (%s) '
-                'WHERE "Account".login = (%s)',
-                (True, self._login))
-            self._db.con.commit()
+            No_meet_state().change_state(self._login, self._db)
 
 
 class Car():
     def __init__(self, db: Database_connection) -> None:
         self._db = db
 
-    def add_car_to_user(self, brand, model, login) -> None:
+    def add_car_to_user(self, brand: str, model: str, login: str) -> None:
         self._db.cur.execute(
             'UPDATE "Account" '
             'SET id_car = (Select id_car FROM "Car" WHERE brand = (%s) and model = (%s)) '
@@ -225,12 +212,12 @@ class Car():
         self._db.con.commit()
 
 
-    def add_car_to_db(self, brand, model) -> None:
+    def add_car_to_db(self, brand: str, model: str) -> None:
         self._db.cur.execute('insert into Car (brand, model) values (%s, %s);',
                              (brand, model))
         self._db.con.commit()
 
-    def change_car(self, brand, model, login) -> None:
+    def change_car(self, brand: str, model: str, login: str) -> None:
 
         self._db.cur.execute(
             'UPDATE "Account" '
@@ -347,12 +334,16 @@ class Proxy():
         pass
 
 
-class View:#TODO dodac zobaczenie jakie auta sa i lokalizacje
-    def __init__(self, db):
+class View:
+    def __init__(self, db: Database_connection):
         self._db = db
 
     def view_cars(self) -> None:
-        pass
+        self._db.cur.execute('select * from "Car";')
+        in_base = self._db.cur.fetchall()
+        for row in in_base:
+            print("Brand: ", row[1], ", Model: ", row[2])
+        Clear_terminal()
 
     def view_locations(self) -> None:
         pass
@@ -373,7 +364,7 @@ class Login_menu:
             """))
             if self.choice == 1:
                 user = Proxy(self._db).login_proxy()
-                if user.get_state() is Meet_state:
+                if isinstance(user.get_state(), Meet_state):
                     Meet_menu(user, self._db).start()
                     break;
                 else:
@@ -397,25 +388,22 @@ class User_settings:
         while True:
             self.choice = int(input("""
             Choose an option:
-            1. Change state
-            2. Add/change your car
-            3. Change password
-            4. Change nick
-            5. Add car to database
-            0. Exit
+            1. Add/change your car
+            2. Change password
+            3. Change nick
+            4. Add car to database
+            0. Back
             """))
             if self.choice == 1:
-                self._user.change_state()
-            elif self.choice == 2:
                 Proxy(self._db).add_car_to_user_proxy(self._user)
-            elif self.choice == 3:
+            elif self.choice == 2:
                 Proxy(self._db).change_password_proxy(self._user)
-            elif self.choice == 4:
+            elif self.choice == 3:
                 Proxy(self._db).change_nick_proxy(self._user)
-            elif self.choice == 5:
+            elif self.choice == 4:
                 Proxy(self._db).add_car_to_db_proxy()
             elif self.choice == 0:
-                print("Exiting program...")
+                print("Going back...")
                 Clear_terminal()
                 break
             else:
@@ -434,39 +422,46 @@ class Meet_menu:
                     2. View locations
                     3. View cars
                     4. Settings
+                    5. Change state
                     0. Exit
                     """))
             if self.choice == 1:
                 pass
             elif self.choice == 2:
-                pass
+                View(self._db).view_locations()
             elif self.choice == 3:
-                pass
+                View(self._db).view_cars()
             elif self.choice == 4:
                 User_settings(self._user, self._db).start()
+            elif self.choice == 5:
+                self._user.change_state()
+                No_meet_menu(self._user, self._db).start()
+                break;
             elif self.choice == 0:
                 print("Exiting program...")
                 Clear_terminal()
                 break;
 
-class No_meet_menu:
+class No_meet_menu():
     def __init__(self, user: Logged_user, db: Database_connection) -> None:
         self._db = db
         self._user = user
 
     def start(self):
-        print("Meet Menu")
+        print("No Meet Menu")
         while True:
             self.choice = int(input("""
                     Choose an option:
-                    1. Meet
+                    1. Change state
                     2. View locations
                     3. View cars
                     4. Settings
                     0. Exit
                     """))
             if self.choice == 1:
-                pass
+                self._user.change_state()
+                Meet_menu(self._user, self._db).start()
+                break;
             elif self.choice == 2:
                 pass
             elif self.choice == 3:

@@ -193,6 +193,24 @@ class Logged_user(User):
         self._db.con.commit()
         return
 
+    def change_state(self) -> None:
+        if(self.get_state() is Meet_state()):
+            print("Changing to no meet state...")
+            self._db.cur.execute(
+                'UPDATE "Account" '
+                'SET state = (%s) '
+                'WHERE "Account".login = (%s)',
+                (False, self._login))
+            self._db.con.commit()
+        else:
+            print("Changing to meet state...")
+            self._db.cur.execute(
+                'UPDATE "Account" '
+                'SET state = (%s) '
+                'WHERE "Account".login = (%s)',
+                (True, self._login))
+            self._db.con.commit()
+
 
 class Car():
     def __init__(self, db: Database_connection) -> None:
@@ -387,7 +405,7 @@ class User_settings:
             0. Exit
             """))
             if self.choice == 1:
-                pass
+                self._user.change_state()
             elif self.choice == 2:
                 Proxy(self._db).add_car_to_user_proxy(self._user)
             elif self.choice == 3:
@@ -408,7 +426,7 @@ class Meet_menu:
         self._db = db
         self._user = user
     def start(self):
-        print("LOGIN MENU")
+        print("Meet Menu")
         while True:
             self.choice = int(input("""
                     Choose an option:
@@ -432,11 +450,33 @@ class Meet_menu:
                 break;
 
 class No_meet_menu:
-    def __init__(self, db: Database_connection) -> None:
+    def __init__(self, user: Logged_user, db: Database_connection) -> None:
         self._db = db
+        self._user = user
 
     def start(self):
-        print("No meet state")
+        print("Meet Menu")
+        while True:
+            self.choice = int(input("""
+                    Choose an option:
+                    1. Meet
+                    2. View locations
+                    3. View cars
+                    4. Settings
+                    0. Exit
+                    """))
+            if self.choice == 1:
+                pass
+            elif self.choice == 2:
+                pass
+            elif self.choice == 3:
+                pass
+            elif self.choice == 4:
+                User_settings(self._user, self._db).start()
+            elif self.choice == 0:
+                print("Exiting program...")
+                Clear_terminal()
+                break;
 
 
 def main():

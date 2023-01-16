@@ -336,13 +336,17 @@ class Proxy():
 
     def change_password_proxy(self, user: Logged_user) -> None:
         password = str(input("New Password: "))
-        if (Password_check.check(password)):
+        if(Password_check().check(password)):
             password = Hash(password).get_hashed_password()
             user.change_password(password)
+            print("Password changed successfully!")
+        else:
+            print("Password too weak!")
+
 
     def change_nick_proxy(self, user: Logged_user) -> None:
-        nick = str(input("New Password: "))
-        if (not Nick_exist(nick, self._db)):
+        nick = str(input("New nick: "))
+        if(not Nick_exist(nick, self._db).check()):
             user.change_nick(nick)
             print("Nick changed successfully!")
             return

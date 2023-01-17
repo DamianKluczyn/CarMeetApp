@@ -28,15 +28,17 @@ class Database_connection:
 
 
 # Interface's
-class User(ABC):
-    @abstractmethod
-    def get_state(self):
-        pass
 
 class State(ABC):
     @abstractmethod
-    def change_state(self, login: str, db: Database_connection):
+    def change_state(self, login: str, db: Database_connection) -> None:
         pass
+
+class User(ABC):
+    @abstractmethod
+    def get_state(self) -> State:
+        pass
+
 
 # Functional classes
 
@@ -103,6 +105,8 @@ class Meet_state(State):
             (False, login))
         db.con.commit()
 
+    def menu(self, user, db) -> None:
+        Meet_menu(user, db).start()
 
 class No_meet_state(State):
     def change_state(self, login: str, db: Database_connection) -> None:
@@ -113,6 +117,9 @@ class No_meet_state(State):
             'WHERE "Account".login = (%s)',
             (True, login))
         db.con.commit()
+
+    def menu(self, user, db) -> None:
+        No_meet_menu(user, db).start()
 
 
 # Database user classes
@@ -414,7 +421,7 @@ class View:
             print("City: ", row[1], ", Name: ", row[2])
         Clear_terminal()
 
-class Login_menu:
+class Login_menu():
     def __init__(self, db: Database_connection) -> None:
         self.choice = ""
         self._db = db
@@ -430,12 +437,7 @@ class Login_menu:
             """))
             if self.choice == 1:
                 user = Proxy(self._db).login_proxy()
-                if isinstance(user.get_state(), Meet_state):
-                    Meet_menu(user, self._db).start()
-                    break
-                else:
-                    No_meet_menu(user, self._db).start()
-                    break
+                user.get_state().menu(user, self._db)
             elif self.choice == 2:
                 Proxy(self._db).register_proxy()
             elif self.choice == 0:
@@ -444,7 +446,7 @@ class Login_menu:
                 break
 
 
-class User_settings:
+class User_settings():
     def __init__(self, user: Logged_user, db: Database_connection) -> None:
         self._user = user
         self._db = db
@@ -479,7 +481,7 @@ class User_settings:
             else:
                 print("Wrong option!")
 
-class Meet_menu:
+class Meet_menu():
     def __init__(self, user: Logged_user, db: Database_connection) -> None:
         self._db = db
         self._user = user
@@ -517,7 +519,7 @@ class No_meet_menu():
         self._db = db
         self._user = user
 
-    def start(self):
+    def start(self) -> None:
         print("No Meet Menu")
         while True:
             self.choice = int(input("""
